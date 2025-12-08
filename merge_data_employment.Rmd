@@ -1,0 +1,38 @@
+---
+title: "306 Dataset Merge"
+author: "Myra Lyu"
+date: "2025-12-05"
+output: html_document
+---
+
+```{r}
+path <- "~/Desktop/306 dataset"
+
+files <- list.files(path, pattern = "\\.csv$", full.names = TRUE)
+
+data_list <- lapply(files, read.csv)
+names(data_list) <- tools::file_path_sans_ext(basename(files))
+```
+
+```{r}
+library(dplyr)
+
+all_ur <- Reduce(
+  function(x, y) full_join(x, y, by = "observation_date"),
+  data_list
+)
+dim(all_ur)
+head(all_ur)
+```
+
+```{r}
+write.csv(all_ur, "~/Desktop/merged_unemployment.csv", row.names = FALSE)
+```
+
+```{r}
+first_half_data = read.csv("merged_unemployment.csv")
+second_half_data = read.csv("merged_unemployment_half.csv")
+unemployment = full_join(first_half_data, second_half_data, by = "observation_date")
+write.csv(unemployment, "unemployment.csv", row.names = FALSE)
+```
+
