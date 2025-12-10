@@ -34,14 +34,69 @@ write.csv(all_ur, "~/Desktop/merged_unemployment.csv", row.names = FALSE)
 ```
 
 
-# Cleaning the ALL MERGED unemployment dataset into desired date ranges
+# Cleaning the ALL MERGED unemployment dataset 
+
 
 ```{r}
 path <- "~/Desktop/class/datasci306/finalproject"
 
 files <- list.files(path, pattern = "\\.csv$", full.names = TRUE)
 
+library(tidyverse)
+df <- read_csv("unemployment.csv")
 ```
+
+## Cleaning up duplicates and adding missing states
+```{r}
+
+# Fixing duplicates (KY and MN)
+# Create correct KYUR by combining KYURN.x and KYURN.y
+df <- df %>%
+  mutate(KYUR = coalesce(KYURN.x, KYURN.y)) %>%
+  select(-KYURN.x, -KYURN.y)
+
+# Create correct MNUR by combining MNUR.x and MNUR.y (if MNUR.x doesn't exist, coalesce handles it)
+df <- df %>%
+  mutate(MNUR = coalesce(MNUR.x, MNUR.y)) %>%
+  select(-any_of(c("MNUR.x", "MNUR.y")))   # removes whichever exist
+```
+
+```{r}
+# Remove DC and PR columns (not in IRS dataset)
+
+df <- df %>%
+  select(-any_of(c("DCUR", "PRUR")))
+
+# Add 4 more states (LA, MS, HI, AK)
+extra_dir <- "state-employment-data"
+
+extra_files <- file.path(extra_dir, c("AKUR.csv", "HIUR.csv", 
+                                      "LAUR.csv", "MSUR.csv"))
+
+extra_states <- extra_files |>
+  map_df(read_csv)
+
+# Combine Original + New
+df_final <- df %>%
+  full_join(extra_states, by = "observation_date")
+
+df_final <- df_final %>%
+  mutate(
+    AKUR = coalesce(AKUR.x, AKUR.y),
+    HIUR = coalesce(HIUR.x, HIUR.y),
+    LAUR = coalesce(LAUR.x, LAUR.y),
+    MSUR = coalesce(MSUR.x, MSUR.y)
+  ) %>%
+  select(-AKUR.x, -AKUR.y,
+         -HIUR.x, -HIUR.y,
+         -LAUR.x, -LAUR.y,
+         -MSUR.x, -MSUR.y)
+
+# 6. Save cleaned dataset
+write_csv(df_final, "unemployment_cleaned.csv")
+
+```
+
 
 ## Imputing any NA values with column means
 
@@ -49,7 +104,7 @@ files <- list.files(path, pattern = "\\.csv$", full.names = TRUE)
 library(dplyr)
 library(lubridate)
 
-df <- read.csv("unemployment.csv")
+df <- read.csv("unemployment_cleaned.csv")
 
 df$observation_date <- ymd(df$observation_date)
 
