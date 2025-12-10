@@ -1,0 +1,81 @@
+---
+title: "final-project"
+output: pdf_document
+date: "2025-12-08"
+---
+
+# Merging unemployment data for states AR, CT, DE, IA, ID, INUR, KS, KY, ME, MN, MO, MT, ND, NE, NH, NM, OK, PR, RI, SC, SD, UT, VT, WV, WY
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+path <- "~/Desktop/class/datasci306/state-employment-data"
+
+files <- list.files(path, pattern = "\\.csv$", full.names = TRUE)
+
+data_list <- lapply(files, read.csv)
+names(data_list) <- tools::file_path_sans_ext(basename(files))
+```
+
+```{r}
+library(dplyr)
+
+all_ur <- Reduce(
+  function(x, y) full_join(x, y, by = "observation_date"),
+  data_list
+)
+dim(all_ur)
+head(all_ur)
+```
+
+```{r}
+write.csv(all_ur, "~/Desktop/merged_unemployment.csv", row.names = FALSE)
+```
+
+
+# Cleaning the ALL MERGED unemployment dataset into desired date ranges
+
+```{r}
+path <- "~/Desktop/class/datasci306/finalproject"
+
+files <- list.files(path, pattern = "\\.csv$", full.names = TRUE)
+
+```
+
+## Imputing any NA values with column means
+
+```{r}
+library(dplyr)
+library(lubridate)
+
+df <- read.csv("unemployment.csv")
+
+df$observation_date <- ymd(df$observation_date)
+
+# Replace NA values with column means
+df_imputed <- df |>
+  mutate(across(where(is.numeric),
+                ~ ifelse(is.na(.x), mean(.x, na.rm = TRUE), .x)))
+```
+
+## Aggregate unemployment rates by year
+
+```{r}
+df_filtered <- df_imputed %>%
+  filter(year(observation_date) >= 2011,
+         year(observation_date) <= 2022)
+
+# Compute yearly averages
+df_yearly <- df_filtered %>%
+  mutate(year = year(observation_date)) %>%
+  select(-observation_date) %>%
+  group_by(year) %>%
+  summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3)))
+
+write.csv(df_yearly, "unemployment_yearly_2011_2022.csv", row.names = FALSE)
+
+```
+
+
