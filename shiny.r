@@ -1,5 +1,6 @@
 # app.R ---------------------------------------------------------------
 # Shiny app: US map with state-to-state migration arrows
+# Uses migration_flows_combined_2011_2021.csv from your cleaning script
 
 library(shiny)
 library(readr)
@@ -10,16 +11,17 @@ library(maps)
 
 # --------------------- Load & prepare data ---------------------------
 
-# 1) Path to your cleaned CSV  ----
-csv_path <- "~/Downloads/migration_cleaned.csv"   # <-- change if needed
+# 1) Path to your combined migration CSV  ----
+#    (written by: write_csv(migration_flows, "migration_flows_combined_2016_2021.csv"))
+csv_path <- "~/Downloads/migration_flows_combined_2011_2021.csv"   # <-- change if needed
 
 migration_raw <- read_csv(csv_path, show_col_types = FALSE) %>%
   mutate(
-    n1  = as.numeric(n1),
-    n2  = as.numeric(n2),
-    AGI = as.numeric(AGI)
+    n_returns    = as.numeric(n_returns),
+    n_exemptions = as.numeric(n_exemptions),
+    total_agi    = as.numeric(total_agi)
   ) %>%
-  # use only outflow rows; this still gives both directions between states
+  # use only outflow rows; across all states this still gives both directions
   filter(flow_type == "outflow")
 
 # 2) FIPS -> state abbreviation lookup (50 states + DC)  ----
@@ -40,23 +42,17 @@ fips_lut <- tibble::tibble(
   )
 )
 
-# 3) Attach abbreviations for both y1_statefips and y2_statefips  ----
-migration_labeled <- migration_raw %>%
-  left_join(fips_lut, by = c("y1_statefips" = "fips")) %>%
-  rename(y1_abb_from_fips = state_abb) %>%
-  left_join(fips_lut, by = c("y2_statefips" = "fips")) %>%
-  rename(y2_abb_from_fips = state_abb)
-
-# 4) Build unified origin / destination abbreviations  ----
-migration_flows <- migration_labeled %>%
-  mutate(
-    origin_abb = y1_abb_from_fips,  # origin is focal state
-    dest_abb   = y2_state           # destination 2-letter code
-  ) %>%
+# 3) Attach abbreviations for origin_fips and dest_fips  ----
+migration_flows <- migration_raw %>%
+  left_join(fips_lut, by = c("origin_fips" = "fips")) %>%
+  rename(origin_abb = state_abb) %>%
+  left_join(fips_lut, by = c("dest_fips" = "fips")) %>%
+  rename(dest_abb = state_abb) %>%
+  # keep only rows where we have valid 2-letter state codes at both ends
   filter(origin_abb %in% state.abb,
          dest_abb   %in% state.abb)
 
-# 5) Get state centroids for plotting arrows  ----
+# 4) Get state centroids for plotting arrows  ----
 state_centers <- tibble::tibble(
   state_abb  = state.abb,
   state_name = state.name,
@@ -71,18 +67,18 @@ migration_geo <- migration_flows %>%
   left_join(state_centers, by = c("dest_abb" = "state_abb")) %>%
   rename(dest_lon = lon, dest_lat = lat)
 
-# 6) US map polygons for background  ----
+# 5) US map polygons for background  ----
 usa_map <- map_data("state")
 
-# Nicely ordered yearpairs, drop same-state flows
+# Nicely ordered flow_period (e.g. "2016-2017"), drop same-state flows
 migration_geo <- migration_geo %>%
   mutate(
-    yearpair = factor(yearpair, levels = sort(unique(yearpair)))
+    flow_period = factor(flow_period, levels = sort(unique(flow_period)))
   ) %>%
   filter(origin_abb != dest_abb)
 
-# use a more realistic upper bound for the slider
-max_n1 <- as.numeric(quantile(migration_geo$n1, 0.99, na.rm = TRUE))
+# Realistic upper bound for slider (99th percentile of n_returns)
+max_n <- as.numeric(quantile(migration_geo$n_returns, 0.99, na.rm = TRUE))
 
 # --------------------------- UI --------------------------------------
 
@@ -94,18 +90,18 @@ ui <- fluidPage(
       width = 4,
       
       selectInput(
-        "yearpair", "Migration year:",
-        choices = levels(migration_geo$yearpair),
-        selected = levels(migration_geo$yearpair)[1]
+        "flow_period", "Migration year:",
+        choices = levels(migration_geo$flow_period),
+        selected = levels(migration_geo$flow_period)[1]
       ),
       
       sliderInput(
-        "min_n1",
+        "min_n",
         "Minimum number of tax returns (households) to show:",
         min   = 0,
-        max   = max_n1,
-        value = round(max_n1 * 0.1),
-        step  = round(max_n1 / 1000)
+        max   = max_n,
+        value = round(max_n * 0.1),
+        step  = max(1, round(max_n / 1000))
       ),
       
       selectInput(
@@ -141,8 +137,8 @@ server <- function(input, output, session) {
   filtered_flows <- reactive({
     out <- migration_geo %>%
       filter(
-        yearpair == input$yearpair,
-        n1 >= input$min_n1
+        flow_period == input$flow_period,
+        n_returns  >= input$min_n
       )
     
     if (input$origin_state != "All") {
@@ -165,14 +161,14 @@ server <- function(input, output, session) {
         aes(x = long, y = lat, group = group),
         fill = "grey95", colour = "white"
       ) +
-      # Flow arrows; size + color map to n1
+      # Flow arrows; size + color map to n_returns
       geom_curve(
         data = flows,
         aes(
           x = orig_lon,  y = orig_lat,
           xend = dest_lon, yend = dest_lat,
-          size = n1,
-          colour = n1
+          size = n_returns,
+          colour = n_returns
         ),
         curvature = 0.25,
         alpha = 0.9,
@@ -193,7 +189,7 @@ server <- function(input, output, session) {
       labs(
         title = paste(
           "State-to-state migration of tax returns (households),",
-          as.character(unique(flows$yearpair))
+          as.character(unique(flows$flow_period))
         )
       )
   })
@@ -206,12 +202,12 @@ server <- function(input, output, session) {
     
     flows %>%
       group_by(dest_abb) %>%
-      summarise(total_returns = sum(n1, na.rm = TRUE), .groups = "drop") %>%
+      summarise(total_returns = sum(n_returns, na.rm = TRUE), .groups = "drop") %>%
       arrange(desc(total_returns)) %>%
       slice_head(n = 5) %>%
       rename(
-        `Destination`                = dest_abb,
-        `Tax returns (households)`   = total_returns
+        `Destination`              = dest_abb,
+        `Tax returns (households)` = total_returns
       )
   })
   
@@ -221,15 +217,17 @@ server <- function(input, output, session) {
     
     flows %>%
       group_by(origin_abb) %>%
-      summarise(total_returns = sum(n1, na.rm = TRUE), .groups = "drop") %>%
+      summarise(total_returns = sum(n_returns, na.rm = TRUE), .groups = "drop") %>%
       arrange(desc(total_returns)) %>%
       slice_head(n = 5) %>%
       rename(
-        `Origin`                     = origin_abb,
-        `Tax returns (households)`   = total_returns
+        `Origin`                   = origin_abb,
+        `Tax returns (households)` = total_returns
       )
   })
 }
 
 # --------------------------- Run app ---------------------------------
 shinyApp(ui, server)
+
+
