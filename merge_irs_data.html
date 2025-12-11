@@ -1,1 +1,50 @@
+---
+title: "Migration Dataset Merge"
+author: "Alexis Gu"
+date: "2025-12-05"
+output: html_document
+---
 
+{r}
+path <- "~/Downloads/migration_states"   # <-- change to your folder
+
+files <- list.files(path, pattern = "\\.csv$", full.names = TRUE)
+
+data_list <- lapply(files, function(f) {
+  df <- read.csv(f, stringsAsFactors = FALSE)
+  
+  fname <- basename(f)
+  
+  # inflow or outflow based on filename
+  flow_type <- ifelse(grepl("inflow", fname, ignore.case = TRUE),
+                      "inflow", "outflow")
+  
+  # extract 4-digit yearpair (e.g., 1819, 1920, 2122)
+  raw_year <- stringr::str_extract(fname, "\\d{4}")
+  
+  # convert 1819 → "2018–2019"
+  yearpair_clean <- paste0(
+    "20", substr(raw_year, 1, 2),
+    "–",
+    "20", substr(raw_year, 3, 4)
+  )
+  
+  df$flow_type <- flow_type
+  df$yearpair  <- yearpair_clean
+  
+  df
+})
+
+names(data_list) <- tools::file_path_sans_ext(basename(files))
+
+library(dplyr)
+
+all_migration <- bind_rows(data_list)
+
+dim(all_migration)
+head(all_migration)
+
+write.csv(all_migration,
+          "~/Downloads/migration_cleaned.csv",   # <-- choose your output location
+          row.names = FALSE)
+{r}
