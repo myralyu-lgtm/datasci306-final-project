@@ -1,31 +1,61 @@
-# app.R ---------------------------------------------------------------
-# Shiny app: US map with state-to-state migration arrows
-# Uses migration_flows_combined_2011_2021.csv from your cleaning script
+#
+# This is a Shiny web application. You can run the application by clicking
+# the 'Run App' button above.
+#
+# Find out more about building applications with Shiny here:
+#
+#    http://shiny.rstudio.com/
+#
 
 library(shiny)
 library(readr)
 library(dplyr)
+library(tidyr)
 library(ggplot2)
-library(stringr)
 library(maps)
 
-# --------------------- Load & prepare data ---------------------------
+usa_map <- map_data("state")
 
-# 1) Path to your combined migration CSV  ----
-#    (written by: write_csv(migration_flows, "migration_flows_combined_2016_2021.csv"))
-csv_path <- "~/Downloads/migration_flows_combined_2011_2021.csv"   # <-- change if needed
+unemployment <- read_csv(
+  "unemployment_yearly_2011_2022.csv",
+  show_col_types = FALSE
+)
 
-migration_raw <- read_csv(csv_path, show_col_types = FALSE) %>%
+unemp_long <- unemployment |>
+  pivot_longer(
+    cols = -year,
+    names_to  = "code",
+    values_to = "unemployment_rate"
+  ) |>
+  mutate(
+    state_abbr = substr(code, 1, 2)
+  )
+
+lookup <- tibble(
+  state_abbr = state.abb,
+  region     = tolower(state.name)
+)
+
+unemp_long <- unemp_long |>
+  inner_join(lookup, by = "state_abbr")
+
+states_map <- map_data("state")
+state_choices <- sort(unique(unemp_long$state_abbr))
+all_years     <- sort(unique(unemp_long$year))
+
+migration_raw <- read_csv(
+  "migration_flows_combined_2011-2022.csv",
+  show_col_types = FALSE
+) %>%
   mutate(
     n_returns    = as.numeric(n_returns),
     n_exemptions = as.numeric(n_exemptions),
     total_agi    = as.numeric(total_agi)
   ) %>%
-  # use only outflow rows; across all states this still gives both directions
+  # use only outflow rows
   filter(flow_type == "outflow")
 
-# 2) FIPS -> state abbreviation lookup (50 states + DC)  ----
-fips_lut <- tibble::tibble(
+fips_lut <- tibble(
   fips = c(
     "01","02","04","05","06","08","09","10","11","12",
     "13","15","16","17","18","19","20","21","22","23",
@@ -42,98 +72,136 @@ fips_lut <- tibble::tibble(
   )
 )
 
-# 3) Attach abbreviations for origin_fips and dest_fips  ----
 migration_flows <- migration_raw %>%
   left_join(fips_lut, by = c("origin_fips" = "fips")) %>%
   rename(origin_abb = state_abb) %>%
   left_join(fips_lut, by = c("dest_fips" = "fips")) %>%
   rename(dest_abb = state_abb) %>%
-  # keep only rows where we have valid 2-letter state codes at both ends
   filter(origin_abb %in% state.abb,
          dest_abb   %in% state.abb)
 
-# 4) Get state centroids for plotting arrows  ----
-state_centers <- tibble::tibble(
+state_centers <- tibble(
   state_abb  = state.abb,
   state_name = state.name,
   lon        = state.center$x,
   lat        = state.center$y
 )
 
-# add lon/lat for origin and destination
 migration_geo <- migration_flows %>%
   left_join(state_centers, by = c("origin_abb" = "state_abb")) %>%
   rename(orig_lon = lon, orig_lat = lat) %>%
   left_join(state_centers, by = c("dest_abb" = "state_abb")) %>%
-  rename(dest_lon = lon, dest_lat = lat)
-
-# 5) US map polygons for background  ----
-usa_map <- map_data("state")
-
-# Nicely ordered flow_period (e.g. "2016-2017"), drop same-state flows
-migration_geo <- migration_geo %>%
+  rename(dest_lon = lon, dest_lat = lat) %>%
   mutate(
     flow_period = factor(flow_period, levels = sort(unique(flow_period)))
   ) %>%
   filter(origin_abb != dest_abb)
 
-# Realistic upper bound for slider (99th percentile of n_returns)
 max_n <- as.numeric(quantile(migration_geo$n_returns, 0.99, na.rm = TRUE))
 
-# --------------------------- UI --------------------------------------
+year_start <- 2011
+year_end   <- 2022
 
-ui <- fluidPage(
-  titlePanel("US State-to-State Migration of Tax Returns (Households)"),
+year_pairs <- paste(
+  year_start:(year_end - 1),
+  (year_start + 1):year_end,
+  sep = "–"
+)
+
+year_keys <- paste(
+  year_start:(year_end - 1),
+  (year_start + 1):year_end,
+  sep = "_"
+)
+
+year_choices <- setNames(year_keys, year_pairs)
+
+ui <- navbarPage(
+  "US Migration & Unemployment",
   
-  sidebarLayout(
-    sidebarPanel(
-      width = 4,
+  tabPanel(
+    "Migration flows",
+    fluidPage(
+      titlePanel("US State-to-State Migration of Tax Returns (Households)"),
       
-      selectInput(
-        "flow_period", "Migration year:",
-        choices = levels(migration_geo$flow_period),
-        selected = levels(migration_geo$flow_period)[1]
-      ),
+      sidebarLayout(
+        sidebarPanel(
+          width = 4,
+          
+          selectInput(
+            "flow_period", "Migration year:",
+            choices  = levels(migration_geo$flow_period),
+            selected = levels(migration_geo$flow_period)[1]
+          ),
+          
+          sliderInput(
+            "min_n",
+            "Minimum number of tax returns (households) to show:",
+            min   = 0,
+            max   = max_n,
+            value = round(max_n * 0.1),
+            step  = max(1, round(max_n / 1000))
+          ),
+          
+          selectInput(
+            "origin_state", "Origin state (from):",
+            choices  = c("All", sort(unique(migration_geo$origin_abb))),
+            selected = "All"
+          ),
+          selectInput(
+            "dest_state", "Destination state (to):",
+            choices  = c("All", sort(unique(migration_geo$dest_abb))),
+            selected = "All"
+          ),
+          
+          br(),
+          h4("Top destinations"),
+          tableOutput("top_dest"),
+          br(),
+          h4("Top origins"),
+          tableOutput("top_origin")
+        ),
+        
+        mainPanel(
+          width = 8,
+          plotOutput("flow_map", height = "650px")
+        )
+      )
+    )
+  ),
+  
+  tabPanel(
+    "Unemployment",
+    fluidPage(
+      titlePanel("US Unemployment Rate by State (2011–2022)"),
       
-      sliderInput(
-        "min_n",
-        "Minimum number of tax returns (households) to show:",
-        min   = 0,
-        max   = max_n,
-        value = round(max_n * 0.1),
-        step  = max(1, round(max_n / 1000))
-      ),
-      
-      selectInput(
-        "origin_state", "Origin state (from):",
-        choices = c("All", sort(unique(migration_geo$origin_abb))),
-        selected = "All"
-      ),
-      selectInput(
-        "dest_state", "Destination state (to):",
-        choices = c("All", sort(unique(migration_geo$dest_abb))),
-        selected = "All"
-      ),
-      
-      br(),
-      h4("Top destinations"),
-      tableOutput("top_dest"),
-      br(),
-      h4("Top origins"),
-      tableOutput("top_origin")
-    ),
-    
-    mainPanel(
-      width = 8,
-      plotOutput("flow_map", height = "650px")
+      sidebarLayout(
+        sidebarPanel(
+          selectInput(
+            "year_range",
+            "Select year pair:",
+            choices  = year_choices,
+            selected = year_keys[1]
+          ),
+          selectInput(
+            "state",
+            "Select state (abbreviation):",
+            choices  = state_choices,
+            selected = "CA"
+          )
+        ),
+        mainPanel(
+          plotOutput("unemp_map", height = "550px"),
+          tags$hr(),
+          plotOutput("state_ts", height = "300px")
+        )
+      )
     )
   )
 )
 
-# -------------------------- SERVER -----------------------------------
 
 server <- function(input, output, session) {
-  
   filtered_flows <- reactive({
     out <- migration_geo %>%
       filter(
@@ -151,17 +219,32 @@ server <- function(input, output, session) {
     out
   })
   
+  unemp_for_period <- reactive({
+    yrs <- strsplit(as.character(input$flow_period), "-")[[1]] |> as.numeric()
+    
+    unemp_long %>%
+      filter(year %in% yrs) %>%
+      group_by(region) %>%
+      summarise(
+        unemployment_rate = mean(unemployment_rate, na.rm = TRUE),
+        .groups = "drop"
+      )
+  })
+  
   output$flow_map <- renderPlot({
     flows <- filtered_flows()
+    unemp <- unemp_for_period()
+    
+    # background polygons with unemployment shading
+    bg_states <- usa_map %>%
+      left_join(unemp, by = "region")
     
     ggplot() +
-      # USA background map
       geom_polygon(
-        data = usa_map,
-        aes(x = long, y = lat, group = group),
-        fill = "grey95", colour = "white"
+        data = bg_states,
+        aes(x = long, y = lat, group = group, fill = unemployment_rate),
+        colour = "white"
       ) +
-      # Flow arrows; size + color map to n_returns
       geom_curve(
         data = flows,
         aes(
@@ -180,6 +263,12 @@ server <- function(input, output, session) {
         high = "red",
         name = "Tax returns (households)"
       ) +
+      scale_fill_gradient(
+        low  = "white",
+        high = "orange",
+        na.value = "grey90",
+        name = "Unemployment rate"
+      ) +
       coord_fixed(1.3) +
       theme_void() +
       theme(
@@ -188,13 +277,11 @@ server <- function(input, output, session) {
       ) +
       labs(
         title = paste(
-          "State-to-state migration of tax returns (households),",
+          "State-to-state migration of tax returns (households) and unemployment,",
           as.character(unique(flows$flow_period))
         )
       )
   })
-  
-  # --------- side rankings -----------------
   
   output$top_dest <- renderTable({
     flows <- filtered_flows()
@@ -225,9 +312,65 @@ server <- function(input, output, session) {
         `Tax returns (households)` = total_returns
       )
   })
+  
+  selected_years <- reactive({
+    as.numeric(strsplit(input$year_range, "_")[[1]])
+  })
+  
+  data_for_year <- reactive({
+    yrs <- selected_years()
+    
+    unemp_long %>%
+      filter(year %in% yrs) %>%
+      group_by(region, state_abbr) %>%
+      summarise(
+        unemployment_rate = mean(unemployment_rate, na.rm = TRUE),
+        .groups = "drop"
+      )
+  })
+  
+  output$unemp_map <- renderPlot({
+    df <- data_for_year()
+    
+    plot_df <- states_map %>%
+      left_join(df, by = "region")
+    
+    ggplot(plot_df,
+           aes(long, lat, group = group, fill = unemployment_rate)) +
+      geom_polygon(color = "white", linewidth = 0.2) +
+      coord_fixed(1.3) +
+      labs(
+        title = paste("Average unemployment rate (", input$year_range, ")", sep = ""),
+        fill  = "Rate"
+      ) +
+      theme_void()
+  })
+  
+  state_series <- reactive({
+    unemp_long %>%
+      filter(state_abbr == input$state) %>%
+      arrange(year)
+  })
+  
+  output$state_ts <- renderPlot({
+    df <- state_series()
+    
+    ggplot(df, aes(x = year, y = unemployment_rate)) +
+      geom_line() +
+      geom_point() +
+      scale_x_continuous(breaks = all_years) +
+      labs(
+        title = paste(
+          "Unemployment rate for",
+          unique(df$state_abbr),
+          "(", unique(df$region), ")"
+        ),
+        x = "Year",
+        y = "Unemployment rate"
+      ) +
+      theme_minimal()
+  })
 }
 
-# --------------------------- Run app ---------------------------------
+# Run the app
 shinyApp(ui, server)
-
-
