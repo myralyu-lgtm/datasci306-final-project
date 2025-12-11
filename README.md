@@ -3,33 +3,25 @@ This is a shiny app analyzing and visualizing how immigration and unemployment i
 
 ## Repository Structure
 
-Code and documentation (in `main` branch):
+### Code and documentation (in `main` branch)
 
 main/
-
 ├── shiny.R                         # Main Shiny application file
-
 ├── merge_data_employment.Rmd       # Merge unemployment datasets from different states
-
 ├── merge_data_migration            # Updated migration merging script
-
 ├── merge_irs_data.Rmd              # Rename merge_irs_data.html → merge_irs_data.Rmd
-
 └── README.md                       # Documentation
 
-Datasets (in `master` branch):
+
+### Datasets (in `master` branch)
 
 master/
 └── finalproject/
     ├── nat-datacleaning.Rmd                      # Cleaned unemployment dataset (2011–2022), removed NAs
-    
     ├── unemployment_cleaned.csv                  # Unemployment dataset without duplicate columns or NAs
-    
     ├── unemployment_yearly_2011_2022.csv         # Cleaned dataset aggregated by year
-    
-└── state-employment-data/
-
-    └── migration_flow_combined_2011_2022.csv     # Merged migration dataset (2011–2022)
+    └── state-employment-data/
+        └── migration_flow_combined_2011_2022.csv # Merged migration dataset (2011–2022)
 
 ## Requirements
 
