@@ -3,7 +3,8 @@ This is a shiny app analyzing and visualizing how immigration and unemployment i
 
 ## Repository Structure
 
-### Code and documentation (in `main` branch)
+```text
+Code and documentation (in main branch)
 
 main/
 ├── shiny.R                         # Main Shiny application file
@@ -12,8 +13,7 @@ main/
 ├── merge_irs_data.Rmd              # Rename merge_irs_data.html → merge_irs_data.Rmd
 └── README.md                       # Documentation
 
-
-### Datasets (in `master` branch)
+Datasets (in master branch)
 
 master/
 └── finalproject/
