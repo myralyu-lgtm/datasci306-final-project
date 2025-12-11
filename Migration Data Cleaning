@@ -1,0 +1,247 @@
+---
+title: "migration-data-cleaning"
+subtitle: "valeria alvarez and alexis gu"
+format: html
+editor: visual
+---
+
+Migration Data Cleaning
+
+State-to-State Outflow 
+
+{r}
+library(tidyverse)
+
+# FIPS = Federal Information Processing Standards
+
+# read first file from irs website
+test_data <- read_csv("https://www.irs.gov/pub/irs-soi/stateoutflow1617.csv")
+
+# used head to look at the first rows to understand format
+# used colnames to see structure of table 
+# used glimpse to see what data type each col was
+
+{r}
+clean_irs_file <- function(file_url, start_year) {
+  # read  data
+  df <- read_csv(file_url, show_col_types = FALSE)
+  
+  # remove summary rows
+  # keep rows where y2_statefips is a valid state FIPS (01 to 56)
+  df_clean <- df %>%
+    filter(y2_statefips %in% sprintf("%02d", 1:56)) 
+  # use sprintf to ensure data is in 2-digit format
+  
+  # rename columns
+  df_clean <- df_clean %>%
+    select(
+      origin_fips = y1_statefips,
+      dest_fips = y2_statefips,
+      dest_state = y2_state,
+      n_returns = n1,
+      n_exemptions = n2,
+      total_agi = AGI
+    )
+
+  # make tables with cleaned data for that year's outflows
+  df_clean <- df_clean %>%
+    mutate(
+      year = start_year,
+      # Create a flow period label (e.g., "2016-2017")
+      flow_period = paste0(start_year, "-", start_year + 1)
+    ) %>%
+    # Reorder columns logically
+    select(year, flow_period, origin_fips, dest_fips, dest_state, everything())
+  
+  return(df_clean)
+}
+
+# test the function on the 2016-2017 file
+test_clean <- clean_irs_file(
+  "https://www.irs.gov/pub/irs-soi/stateoutflow1617.csv",
+  2016
+)
+
+# inspect the cleaned result
+print("cleaned -- dimensions:")
+dim(test_clean)
+
+print("cleaned -- column names:")
+colnames(test_clean)
+
+{r}
+outflow_files <- c(
+  "2011" = "https://www.irs.gov/pub/irs-soi/stateoutflow1112.csv",
+  "2012" = "https://www.irs.gov/pub/irs-soi/stateoutflow1112.csv",
+  "2013" = "https://www.irs.gov/pub/irs-soi/stateoutflow1213.csv",
+  "2014" = "https://www.irs.gov/pub/irs-soi/stateoutflow1314.csv",
+  "2015" = "https://www.irs.gov/pub/irs-soi/stateoutflow1516.csv",
+  "2016" = "https://www.irs.gov/pub/irs-soi/stateoutflow1617.csv",
+  "2017" = "https://www.irs.gov/pub/irs-soi/stateoutflow1718.csv",
+  "2018" = "https://www.irs.gov/pub/irs-soi/stateoutflow1819.csv",
+  "2019" = "https://www.irs.gov/pub/irs-soi/stateoutflow1920.csv",
+  "2020" = "https://www.irs.gov/pub/irs-soi/stateoutflow2021.csv",
+  "2021" = "https://www.irs.gov/pub/irs-soi/stateoutflow2122.csv"
+)
+
+library(purrr)
+
+all_outflow <- map2_dfr(
+  outflow_files,          # urls
+  names(outflow_files),   # years they map to
+  ~ clean_irs_file(.x, as.numeric(.y)), # use cleaning func
+  .id = "source_year"     # keep track of source year for ordering
+)
+
+# Inspect the combined dataset
+print("Combined Outflow Data 2011-1022:")
+cat("Dimensions:", dim(all_outflow), "\n")
+cat("Year range:", unique(all_outflow$year), "\n")
+cat("Sample rows:\n")
+head(all_outflow, 10)
+
+{r}
+print("Structure of combined outflow data:")
+glimpse(all_outflow)
+
+# check if dataset is complete
+print("Missing values per column:")
+colSums(is.na(all_outflow))
+
+# save to CSV file
+write_csv(all_outflow, "cleaned_outflow_2016_2021.csv")
+
+State-to-State Inflow
+
+{r}
+test_inflow <- read_csv("https://www.irs.gov/pub/irs-soi/stateinflow1617.csv")
+
+# used head to look at the first rows to understand format
+# used colnames to see structure of table 
+# used spec to see what data type each col was
+
+{r}
+clean_inflow_file <- function(file_url, start_year) {
+  df <- read_csv(file_url, show_col_types = FALSE)
+  
+  # get rid of summary rows
+  df_clean <- df %>%
+    filter(y1_statefips %in% sprintf("%02d", 1:56))
+  
+  # rename cols
+  # y1 = destination, y2 = origin
+  df_clean <- df_clean %>%
+    select(
+      dest_fips = y1_statefips,      # destination fips
+      origin_fips = y2_statefips,    # origin fips  
+      origin_state = y1_state,       # y1_state is origin
+      n_returns = n1,
+      n_exemptions = n2,
+      total_agi = AGI
+    )
+# table to clean
+  df_clean <- df_clean %>%
+    mutate(
+      year = start_year,
+      flow_period = paste0(start_year, "-", start_year + 1),
+      flow_type = "inflow"
+    ) %>%
+    select(year, flow_period, flow_type, origin_fips, dest_fips, origin_state, everything())
+  
+  return(df_clean)
+}
+
+{r}
+test_inflow_clean <- clean_inflow_file(
+  "https://www.irs.gov/pub/irs-soi/stateinflow1617.csv",
+  2016
+)
+
+print("cleaned inflow dimensions:")
+dim(test_inflow_clean)
+
+# looked at first rows with head to make sure cleaning was successful
+
+{r}
+inflow_files <- c(
+  "2011" = "https://www.irs.gov/pub/irs-soi/stateinflow1112.csv",
+  "2012" = "https://www.irs.gov/pub/irs-soi/stateinflow1112.csv",
+  "2013" = "https://www.irs.gov/pub/irs-soi/stateinflow1213.csv",
+  "2014" = "https://www.irs.gov/pub/irs-soi/stateinflow1314.csv",
+  "2015" = "https://www.irs.gov/pub/irs-soi/stateinflow1516.csv",
+  "2016" = "https://www.irs.gov/pub/irs-soi/stateinflow1617.csv",
+  "2017" = "https://www.irs.gov/pub/irs-soi/stateinflow1718.csv",
+  "2018" = "https://www.irs.gov/pub/irs-soi/stateinflow1819.csv",
+  "2019" = "https://www.irs.gov/pub/irs-soi/stateinflow1920.csv",
+  "2020" = "https://www.irs.gov/pub/irs-soi/stateinflow2021.csv",
+  "2021" = "https://www.irs.gov/pub/irs-soi/stateinflow2122.csv"
+)
+
+# use cleaning function to clean inflow all data
+all_inflow <- map2_dfr(
+  inflow_files,
+  names(inflow_files),
+  ~ clean_inflow_file(.x, as.numeric(.y)),
+  .id = "source_year"
+)
+
+# make sure combination process worked
+cat("Combined inflow dimensions:", dim(all_inflow), "\n")
+cat("Years:", unique(all_inflow$year), "\n")
+
+# save inflow data to a csv file
+write_csv(all_inflow, "cleaned_inflow_2016_2021.csv")
+print("Inflow data saved.")
+
+Combined Dataset 2011-2022 for State-to-State Outflow and Inflow 
+
+{r}
+all_outflow <- all_outflow %>%
+  mutate(flow_type = "outflow") %>%
+  select(source_year, year, flow_period, flow_type, origin_fips, dest_fips, dest_state, everything())
+
+# rename dest_state (destination) to state_abbr in outflow for consistency
+all_outflow <- all_outflow %>%
+  rename(state_abbr = dest_state)
+
+# rename origin_state to state_abbrin inflow 
+all_inflow <- all_inflow %>%
+  rename(state_abbr = origin_state)
+
+# combine sets into bigger one
+migration_flows <- bind_rows(all_outflow, all_inflow) %>%
+  arrange(year, flow_type, origin_fips, dest_fips)
+
+#save to csv
+write_csv(migration_flows, "migration_flows_combined_2016_2021.csv")
+
+# make state by year panel for merging with employment data
+state_year_panel <- migration_flows %>%
+  group_by(year, state_fips = dest_fips, state_abbr) %>%
+  summarise(
+    total_inflow = sum(n_returns[flow_type == "inflow"], na.rm = TRUE),
+    total_outflow = sum(n_returns[flow_type == "outflow"], na.rm = TRUE),
+    total_inflow_agi = sum(total_agi[flow_type == "inflow"], na.rm = TRUE),
+    total_outflow_agi = sum(total_agi[flow_type == "outflow"], na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    net_migration = total_inflow - total_outflow,
+    net_migration_rate = net_migration / (total_inflow + total_outflow) * 100,
+    avg_inflow_agi = total_inflow_agi / total_inflow,
+    avg_outflow_agi = total_outflow_agi / total_outflow
+  ) %>%
+  arrange(year, state_fips)
+
+# save dataset to merge 
+write_csv(state_year_panel, "state_year_migration_panel_2016_2021.csv")
+print("State-year panel saved.")
+
+{r}
+panel <- read_csv("state_year_migration_panel_2016_2021.csv")
+view(panel)
+
+# make sure dataset to merge actually makes sense
+# used glimpse to look at structure
+# used unique to to at year span
+# checked for missing data with colSums is.na
