@@ -44,7 +44,7 @@ state_choices <- sort(unique(unemp_long$state_abbr))
 all_years     <- sort(unique(unemp_long$year))
 
 migration_raw <- read_csv(
-  "migration_flows_combined_2011-2022.csv",
+  "migration_flows_combined_2011_2021.csv",
   show_col_types = FALSE
 ) %>%
   mutate(
@@ -88,6 +88,7 @@ state_centers <- tibble(
 )
 
 migration_geo <- migration_flows %>%
+  
   left_join(state_centers, by = c("origin_abb" = "state_abb")) %>%
   rename(orig_lon = lon, orig_lat = lat) %>%
   left_join(state_centers, by = c("dest_abb" = "state_abb")) %>%
@@ -96,6 +97,12 @@ migration_geo <- migration_flows %>%
     flow_period = factor(flow_period, levels = sort(unique(flow_period)))
   ) %>%
   filter(origin_abb != dest_abb)
+
+migration_geo <- migration_geo %>%
+  mutate(
+    avg_agi = (total_agi / n_returns) * 1000
+  )
+
 
 max_n <- as.numeric(quantile(migration_geo$n_returns, 0.99, na.rm = TRUE))
 
@@ -135,13 +142,16 @@ ui <- navbarPage(
           ),
           
           sliderInput(
-            "min_n",
-            "Minimum number of tax returns (households) to show:",
-            min   = 0,
-            max   = max_n,
-            value = round(max_n * 0.1),
-            step  = max(1, round(max_n / 1000))
-          ),
+            "min_avg_agi",
+            "Minimum average AGI per household ($):",
+            min   = round(quantile(migration_geo$avg_agi, 0.05, na.rm = TRUE), -3),
+            max   = round(quantile(migration_geo$avg_agi, .9998, na.rm = TRUE), -3),
+            value = round(median(migration_geo$avg_agi, na.rm = TRUE), -3),
+            step  = 500,
+            pre   = "$",
+            sep   = ","
+          )
+          ,
           
           selectInput(
             "origin_state", "Origin state (from):",
@@ -183,17 +193,10 @@ ui <- navbarPage(
             choices  = year_choices,
             selected = year_keys[1]
           ),
-          selectInput(
-            "state",
-            "Select state (abbreviation):",
-            choices  = state_choices,
-            selected = "CA"
-          )
         ),
         mainPanel(
           plotOutput("unemp_map", height = "550px"),
           tags$hr(),
-          plotOutput("state_ts", height = "300px")
         )
       )
     )
@@ -202,11 +205,50 @@ ui <- navbarPage(
 
 
 server <- function(input, output, session) {
+  slider_domain <- reactive({
+    df <- migration_geo %>%
+      filter(flow_period == input$flow_period)
+    
+    if (input$origin_state != "All") df <- df %>% filter(origin_abb == input$origin_state)
+    if (input$dest_state   != "All") df <- df %>% filter(dest_abb   == input$dest_state)
+    
+    # avoid weird outliers so the slider stays usable
+    rng <- quantile(df$avg_agi, probs = c(0.05, 0.995), na.rm = TRUE)
+    
+    list(
+      min = round(rng[[1]], -3),
+      max = round(rng[[2]], -3)
+    )
+  })
+  
+  observeEvent(
+    list(input$flow_period, input$origin_state, input$dest_state),
+    {
+      dom <- slider_domain()
+      
+      # keep current value if it's still in-range; otherwise clamp
+      new_value <- input$min_avg_agi
+      if (is.null(new_value) || is.na(new_value)) new_value <- dom$min
+      new_value <- max(dom$min, min(dom$max, new_value))
+      
+      updateSliderInput(
+        session, "min_avg_agi",
+        min = dom$min,
+        max = dom$max,
+        value = new_value,
+        step = 500
+      )
+    },
+    ignoreInit = TRUE
+  )
+  
+  
   filtered_flows <- reactive({
     out <- migration_geo %>%
       filter(
         flow_period == input$flow_period,
-        n_returns  >= input$min_n
+        avg_agi >= input$min_avg_agi
+        
       )
     
     if (input$origin_state != "All") {
@@ -250,9 +292,10 @@ server <- function(input, output, session) {
         aes(
           x = orig_lon,  y = orig_lat,
           xend = dest_lon, yend = dest_lat,
-          size = n_returns,
-          colour = n_returns
-        ),
+          size   = n_returns,
+          colour = avg_agi
+        )
+        ,
         curvature = 0.25,
         alpha = 0.9,
         arrow = arrow(length = unit(0.12, "inches"))
@@ -261,7 +304,9 @@ server <- function(input, output, session) {
       scale_colour_gradient(
         low  = "blue",
         high = "red",
-        name = "Tax returns (households)"
+        name = "Average AGI per household ($)",
+        breaks = scales::pretty_breaks(n = 4),
+        labels = scales::dollar_format()
       ) +
       scale_fill_gradient(
         low  = "white",
@@ -273,7 +318,10 @@ server <- function(input, output, session) {
       theme_void() +
       theme(
         legend.position = "bottom",
-        plot.title = element_text(hjust = 0.5, face = "bold")
+        legend.box = "vertical",
+        legend.box.just = "right",
+        legend.justification = "right",
+        legend.key.width = unit(2, "cm")
       ) +
       labs(
         title = paste(
@@ -289,14 +337,21 @@ server <- function(input, output, session) {
     
     flows %>%
       group_by(dest_abb) %>%
-      summarise(total_returns = sum(n_returns, na.rm = TRUE), .groups = "drop") %>%
-      arrange(desc(total_returns)) %>%
+      summarise(
+        `Households` = sum(n_returns, na.rm = TRUE),
+        `Avg AGI ($)` = sum(avg_agi * n_returns, na.rm = TRUE) / sum(n_returns, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      arrange(desc(`Households`)) %>%
       slice_head(n = 5) %>%
-      rename(
-        `Destination`              = dest_abb,
-        `Tax returns (households)` = total_returns
-      )
+      mutate(
+        `Households` = scales::comma(round(`Households`)),
+        `Avg AGI ($)` = scales::dollar(round(`Avg AGI ($)`))
+      ) %>%
+      rename(`Destination` = dest_abb)
   })
+  
+  
   
   output$top_origin <- renderTable({
     flows <- filtered_flows()
@@ -304,14 +359,21 @@ server <- function(input, output, session) {
     
     flows %>%
       group_by(origin_abb) %>%
-      summarise(total_returns = sum(n_returns, na.rm = TRUE), .groups = "drop") %>%
-      arrange(desc(total_returns)) %>%
+      summarise(
+        `Households` = sum(n_returns, na.rm = TRUE),
+        `Avg AGI ($)` = sum(avg_agi * n_returns, na.rm = TRUE) / sum(n_returns, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      arrange(desc(`Households`)) %>%
       slice_head(n = 5) %>%
-      rename(
-        `Origin`                   = origin_abb,
-        `Tax returns (households)` = total_returns
-      )
+      mutate(
+        `Households` = scales::comma(round(`Households`)),
+        `Avg AGI ($)` = scales::dollar(round(`Avg AGI ($)`))
+      ) %>%
+      rename(`Origin` = origin_abb)
   })
+  
+  
   
   selected_years <- reactive({
     as.numeric(strsplit(input$year_range, "_")[[1]])
