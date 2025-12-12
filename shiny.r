@@ -1,4 +1,4 @@
-
+  
 #
 # This is a Shiny web application. You can run the application by clicking
 # the 'Run App' button above.
@@ -138,7 +138,7 @@ ui <- navbarPage(
           
           sliderInput(
             "agi_range",
-            "Annual Gross Income (AGI) range:",
+            "Adjusted Gross Income (AGI) range:",
             min   = 0,
             max   = max_agi,
             value = c(round(max_agi * 0.1), round(max_agi * 0.9)),  # Default shows middle 80%
@@ -266,7 +266,7 @@ server <- function(input, output, session) {
       scale_colour_gradient(
         low  = "blue",
         high = "darkred",
-        name = "Annual Gross Income (AGI)",
+        name = "Adjusted Gross Income (AGI)",
         breaks = c(min(flows$total_agi, na.rm = TRUE), 
                    max(flows$total_agi, na.rm = TRUE)),
         labels = function(x) format(x, scientific = FALSE, big.mark = ",")
@@ -289,7 +289,7 @@ server <- function(input, output, session) {
       ) +
       labs(
         title = paste(
-          "State-to-State Migration by Annual Gross Income (AGI) and Unemployment Rate,",
+          "State-to-State Migration by Adjusted Gross Income (AGI) and Unemployment Rate,",
           as.character(unique(flows$flow_period))
         )
       )
@@ -401,3 +401,5 @@ server <- function(input, output, session) {
 
 # run app
 shinyApp(ui, server)
+
+  
