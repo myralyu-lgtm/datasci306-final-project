@@ -1,6 +1,6 @@
 # Final Project Shiny Application - Unemployment Immigration Visualization
 This is a shiny app analyzing and visualizing how immigration and unemployment is correlated across the US. The app allows users to filter, explore, and compare datasets interactively.
-The URL of the deployed app is: https://github.com/myralyu-lgtm/datasci306-final-project/blob/main/README.md
+The URL of the deployed app is: https://myralyu.shinyapps.io/finalproject/
 
 ## Repository Structure
 
