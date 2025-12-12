@@ -272,13 +272,15 @@ server <- function(input, output, session) {
         labels = function(x) format(x, scientific = FALSE, big.mark = ",")
       ) +
       scale_fill_gradient(
-        low  = "lightblue",
+        low  = "lightyellow",
         high = "red",
         na.value = "grey90",
         name = "Unemployment Rate",
-        limits = c(3, 8.5),  
-        breaks = c(4, 5, 6, 7, 8)
-      ) +
+        limits = c(3, 7.5),  
+        breaks = c(4, 5, 6, 7)
+      ) + annotate("text", x = -125, y = 25, 
+                 label = "Gray coloring indicates missing data", 
+                 size = 3, color = "gray40", hjust = 0) +
       coord_fixed(1.3) +
       theme_void() +
       theme(
@@ -349,6 +351,16 @@ server <- function(input, output, session) {
     ggplot(plot_df,
            aes(long, lat, group = group, fill = unemployment_rate)) +
       geom_polygon(color = "white", linewidth = 0.2) +
+      scale_fill_gradient(
+        low = "lightblue",    # Light color for LOW unemployment
+        high = "darkblue",         # Dark color for HIGH unemployment
+        na.value = "grey90",
+        name = "Unemployment Rate (%)",
+        limits = c(3, 7.5),   # SAME limits as Migration tab
+        breaks = c(3, 4, 5, 6, 7, 7.5)
+      ) + annotate("text", x = -125, y = 25, 
+                   label = "Gray coloring indicaets missing data", 
+                   size = 3, color = "gray40", hjust = 0) +
       coord_fixed(1.3) +
       labs(
         title = paste("Average unemployment rate (", input$year_range, ")", sep = ""),
@@ -370,6 +382,10 @@ server <- function(input, output, session) {
       geom_line() +
       geom_point() +
       scale_x_continuous(breaks = all_years) +
+      scale_y_continuous(
+        limits = c(3.5, 7.5),  
+        breaks = c(4, 5, 6, 7)
+      ) +
       labs(
         title = paste(
           "Unemployment rate for",
