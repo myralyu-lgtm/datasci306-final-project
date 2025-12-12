@@ -198,7 +198,7 @@ ui <- navbarPage(
         mainPanel(
           plotOutput("unemp_map", height = "550px"),
           tags$hr(),
-          h4("Top 10 States by Unemployment Rate"),
+          h4("Unemployment Rate overtime 2011-2021"),
           tableOutput("top_unemp_table"),
           tags$hr(),
           plotOutput("state_ts", height = "300px"),
