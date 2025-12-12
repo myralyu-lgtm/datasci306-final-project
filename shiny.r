@@ -1,4 +1,4 @@
-  
+ 
 #
 # This is a Shiny web application. You can run the application by clicking
 # the 'Run App' button above.
@@ -255,7 +255,7 @@ server <- function(input, output, session) {
         aes(
           x = orig_lon,  y = orig_lat,
           xend = dest_lon, yend = dest_lat,
-          size = total_agi,
+          size = n_returns,
           colour = total_agi
         ),
         curvature = 0.25,
@@ -401,5 +401,3 @@ server <- function(input, output, session) {
 
 # run app
 shinyApp(ui, server)
-
-  
