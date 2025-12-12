@@ -1,4 +1,4 @@
- 
+
 #
 # This is a Shiny web application. You can run the application by clicking
 # the 'Run App' button above.
@@ -160,10 +160,10 @@ ui <- navbarPage(
           ),
           
           br(),
-          h4("Top destinations by AGI (within selected range)"),
+          h4("Top destinations by number of households (within selected AGI range)"),
           tableOutput("top_dest"),
           br(),
-          h4("Top origins by AGI"),
+          h4("Top origins by number of households (within selected AGI range)"),
           tableOutput("top_origin")
         ),
         
@@ -198,7 +198,14 @@ ui <- navbarPage(
         mainPanel(
           plotOutput("unemp_map", height = "550px"),
           tags$hr(),
-          plotOutput("state_ts", height = "300px")
+          h4("Top 10 States by Unemployment Rate"),
+          tableOutput("top_unemp_table"),
+          tags$hr(),
+          plotOutput("state_ts", height = "300px"),
+          h4("States with Highest Unemployment Rates"),
+          tableOutput("top_unemp_table"),
+          h4("States with Lowest Unemployment Rates"),
+          tableOutput("bottom_unemp_table"),
         )
       )
     )
@@ -276,8 +283,8 @@ server <- function(input, output, session) {
         high = "red",
         na.value = "grey90",
         name = "Unemployment Rate",
-        limits = c(3, 7.5),  
-        breaks = c(4, 5, 6, 7)
+        limits = c(3, 8.5),  
+        breaks = c(3, 4, 5, 6, 7, 8)
       ) + annotate("text", x = -125, y = 25, 
                  label = "Gray coloring indicates missing data", 
                  size = 3, color = "gray40", hjust = 0) +
@@ -301,12 +308,12 @@ server <- function(input, output, session) {
     
     flows %>%
       group_by(dest_abb) %>%
-      summarise(total_agi = sum(total_agi, na.rm = TRUE), .groups = "drop") %>%
-      arrange(desc(total_agi)) %>%
-      slice_head(n = 5) %>%
+      summarise(households1 = sum(n_returns, na.rm = TRUE), .groups = "drop") %>%
+      arrange(desc(households1)) %>%
+      slice_head(n = 10) %>%
       rename(
         `Destination` = dest_abb,
-        `Total AGI` = total_agi
+        `Households` = households1
       )
   })
   
@@ -316,12 +323,12 @@ server <- function(input, output, session) {
     
     flows %>%
       group_by(origin_abb) %>%
-      summarise(total_agi = sum(total_agi, na.rm = TRUE), .groups = "drop") %>%
-      arrange(desc(total_agi)) %>%
-      slice_head(n = 5) %>%
+      summarise(households2 = sum(n_returns, na.rm = TRUE), .groups = "drop") %>%
+      arrange(desc(households2)) %>%
+      slice_head(n = 10) %>%
       rename(
         `Origin` = origin_abb,
-        `Total AGI` = total_agi
+        `Households` = households2
     )
     
   })
@@ -342,6 +349,40 @@ server <- function(input, output, session) {
       )
   })
   
+  output$top_unemp_table <- renderTable({
+    df <- data_for_year()
+    
+    if (nrow(df) == 0) return(NULL)
+    
+    df %>%
+      arrange(desc(unemployment_rate)) %>%
+      slice_head(n = 10) %>%
+      mutate(
+        unemployment_rate = round(unemployment_rate, 1)
+      ) %>%
+      select(
+        State = state_abbr,
+        `Unemployment Rate (%)` = unemployment_rate
+      )
+  })
+  
+  output$bottom_unemp_table <- renderTable({
+    df <- data_for_year()
+    
+    if (nrow(df) == 0) return(NULL)
+    
+    df %>%
+      arrange(unemployment_rate) %>%
+      slice_head(n = 10) %>%
+      mutate(
+        unemployment_rate = round(unemployment_rate, 1)
+      ) %>%
+      select(
+        State = state_abbr,
+        `Unemployment Rate (%)` = unemployment_rate
+      )
+  })
+  
   output$unemp_map <- renderPlot({
     df <- data_for_year()
     
@@ -356,8 +397,8 @@ server <- function(input, output, session) {
         high = "darkblue",         # Dark color for HIGH unemployment
         na.value = "grey90",
         name = "Unemployment Rate (%)",
-        limits = c(3, 7.5),   # SAME limits as Migration tab
-        breaks = c(3, 4, 5, 6, 7, 7.5)
+        limits = c(3, 8.5),   # SAME limits as Migration tab
+        breaks = c(3, 4, 5, 6, 7, 8)
       ) + annotate("text", x = -125, y = 25, 
                    label = "Gray coloring indicaets missing data", 
                    size = 3, color = "gray40", hjust = 0) +
@@ -383,8 +424,8 @@ server <- function(input, output, session) {
       geom_point() +
       scale_x_continuous(breaks = all_years) +
       scale_y_continuous(
-        limits = c(3.5, 7.5),  
-        breaks = c(4, 5, 6, 7)
+        limits = c(3, 8.5),  
+        breaks = c(3, 4, 5, 6, 7, 8)
       ) +
       labs(
         title = paste(
